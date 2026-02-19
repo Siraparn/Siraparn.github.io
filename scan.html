@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FG Scanner → n8n</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { margin: 0; background:#0b1220; color:#e7eefc; }
+    header { padding: 16px 16px 8px; }
+    h1 { font-size: 18px; margin: 0 0 6px; }
+    .sub { opacity:.8; font-size: 12px; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 16px; }
+    .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @media (min-width: 860px) { .grid { grid-template-columns: 1.2fr .8fr; } }
+    .card { background:#121a2b; border:1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 14px; }
+    .row { display:flex; gap:10px; flex-wrap: wrap; align-items: center; }
+    label { font-size: 12px; opacity:.85; display:block; margin: 10px 0 6px; }
+    input, select, button, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,.12);
+      background:#0c1424;
+      color:#e7eefc;
+      padding: 10px 12px;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: rgba(120,180,255,.65); }
+    button { cursor:pointer; font-weight: 650; }
+    button.primary { background:#2a6ff2; border-color:#2a6ff2; }
+    button.danger { background:#ef4444; border-color:#ef4444; }
+    button.ghost { background:transparent; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .half { flex: 1 1 220px; }
+    .small { font-size: 12px; opacity:.8; }
+    .ok { color:#22c55e; }
+    .err { color:#ef4444; }
+    #reader { width:100%; border-radius: 16px; overflow:hidden; background:#0c1424; }
+    .pill { display:inline-flex; gap:8px; align-items:center; padding:6px 10px; border-radius: 999px; border:1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); font-size: 12px; }
+    .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+    .k { opacity:.75; }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <h1>FG Scanner → n8n Webhook</h1>
+    <div class="sub">สแกน QR/Barcode แล้วส่ง payload เข้า n8n (Webhook) • ไฟล์เดียวจบ</div>
+  </header>
+
+  <div class="wrap grid">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div class="pill"><span class="k">Status:</span> <span id="statusText">พร้อมใช้งาน</span></div>
+        <div class="row" style="gap:8px;">
+          <button id="btnStart" class="primary" style="width:auto;">เริ่มสแกน</button>
+          <button id="btnStop" class="ghost" style="width:auto;" disabled>หยุด</button>
+        </div>
+      </div>
+
+      <div style="height:12px"></div>
+      <div id="reader"></div>
+
+      <div style="height:12px"></div>
+      <div class="row">
+        <div class="half">
+          <label>Webhook URL (n8n)</label>
+          <input id="webhookUrl" placeholder="https://n8n.yourdomain.com/webhook/fg-scan" />
+          <div class="small">แนะนำใช้ Production Webhook URL ของ workflow</div>
+        </div>
+        <div class="half">
+          <label>Mode</label>
+          <select id="scanMode">
+            <option value="qr">QR</option>
+            <option value="barcode">Barcode (Code128/EAN ฯลฯ)</option>
+            <option value="auto" selected>Auto</option>
+          </select>
+          <div class="small">Auto จะพยายามอ่านหลายฟอร์แมต</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="half">
+          <label>Source Location</label>
+          <input id="srcLoc" value="WH/FG" />
+        </div>
+        <div class="half">
+          <label>Dest Location</label>
+          <input id="dstLoc" value="WH/Stock" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="half">
+          <label>Operator</label>
+          <input id="operator" placeholder="เช่น u12" />
+        </div>
+        <div class="half">
+          <label>Device ID</label>
+          <input id="deviceId" placeholder="เช่น dev01" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="half">
+          <label>Cooldown (กันยิงซ้ำเร็วเกิน)</label>
+          <select id="cooldownMs">
+            <option value="300">300 ms</option>
+            <option value="600" selected>600 ms</option>
+            <option value="1000">1000 ms</option>
+            <option value="1500">1500 ms</option>
+          </select>
+        </div>
+        <div class="half">
+          <label>Manual send (กรณีสแกนจากรูป/พิมพ์เอง)</label>
+          <div class="row" style="gap:8px;">
+            <input id="manualCode" placeholder="วางโค้ด เช่น CYY17022600C1N185311" />
+            <button id="btnSendManual" class="primary" style="width:auto;">ส่ง</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="justify-content:space-between;">
+        <div class="small">Tip: iOS ต้องเปิดผ่าน HTTPS และให้ permission กล้อง</div>
+        <button id="btnCloseSession" class="danger" style="width:auto;">Close Session (Optional)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div class="pill"><span class="k">Last code:</span> <span id="lastCode">-</span></div>
+        <button id="btnClear" class="ghost" style="width:auto;">ล้าง log</button>
+      </div>
+
+      <label>Response / Log</label>
+      <div id="log" class="log" style="min-height: 420px;"></div>
+    </div>
+  </div>
+
+  <!-- html5-qrcode (กล้องสแกน QR/Barcode) -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.10/minified/html5-qrcode.min.js"></script>
+  <script>
+    // ====== CONFIG ======
+    // ถ้าอยาก fix webhook URL ไว้เลย ให้ใส่ตรงนี้ แล้วคอมเมนต์ localStorage ส่วน load
+    // const DEFAULT_WEBHOOK = "https://n8n.yourdomain.com/webhook/fg-scan";
+    const DEFAULT_WEBHOOK = "";
+
+    // ====== Utilities ======
+    const $ = (id) => document.getElementById(id);
+    const logEl = $("log");
+    const statusText = $("statusText");
+    const lastCodeEl = $("lastCode");
+
+    function nowISO() {
+      const d = new Date();
+      return d.toISOString();
+    }
+
+    function appendLog(line, cls="") {
+      const ts = new Date().toLocaleTimeString();
+      const div = document.createElement("div");
+      div.textContent = `[${ts}] ${line}`;
+      if (cls) div.className = cls;
+      logEl.prepend(div);
+    }
+
+    function setStatus(text, ok=true) {
+      statusText.textContent = text;
+      statusText.className = ok ? "ok" : "err";
+    }
+
+    function vibrateOK() {
+      if (navigator.vibrate) navigator.vibrate([40, 40, 40]);
+    }
+
+    // ====== State ======
+    let qr = null;
+    let running = false;
+    let lastSent = { code: "", at: 0 };
+
+    // ====== Local storage (จำค่า) ======
+    function saveSettings() {
+      const data = {
+        webhookUrl: $("webhookUrl").value.trim(),
+        srcLoc: $("srcLoc").value.trim(),
+        dstLoc: $("dstLoc").value.trim(),
+        operator: $("operator").value.trim(),
+        deviceId: $("deviceId").value.trim(),
+        scanMode: $("scanMode").value,
+        cooldownMs: $("cooldownMs").value
+      };
+      localStorage.setItem("fg_scanner_settings_v1", JSON.stringify(data));
+    }
+
+    function loadSettings() {
+      const raw = localStorage.getItem("fg_scanner_settings_v1");
+      if (raw) {
+        try {
+          const s = JSON.parse(raw);
+          $("webhookUrl").value = s.webhookUrl || DEFAULT_WEBHOOK;
+          $("srcLoc").value = s.srcLoc || "WH/FG";
+          $("dstLoc").value = s.dstLoc || "WH/Stock";
+          $("operator").value = s.operator || "";
+          $("deviceId").value = s.deviceId || "";
+          $("scanMode").value = s.scanMode || "auto";
+          $("cooldownMs").value = s.cooldownMs || "600";
+          return;
+        } catch(e) {}
+      }
+      $("webhookUrl").value = DEFAULT_WEBHOOK;
+    }
+
+    // ====== Payload builder ======
+    function buildPayload(scanCode, action="scan") {
+      const payload = {
+        action,                  // "scan" | "close_session"
+        scan_code: scanCode,     // string
+        source_location: $("srcLoc").value.trim(),
+        dest_location: $("dstLoc").value.trim(),
+        operator: $("operator").value.trim() || null,
+        device_id: $("deviceId").value.trim() || null,
+        scan_mode: $("scanMode").value,
+        ts: nowISO(),
+        qty: 1
+      };
+      // session hint (ให้ n8n/ฝั่งหลังเอาไปประกอบ session ได้)
+      payload.session_hint = [
+        payload.device_id || "device",
+        payload.operator || "operator",
+        payload.source_location,
+        payload.dest_location
+      ].join("#");
+      return payload;
+    }
+
+    async function postToWebhook(payload) {
+      const url = $("webhookUrl").value.trim();
+      if (!url) {
+        setStatus("กรุณาใส่ Webhook URL", false);
+        appendLog("ERROR: Webhook URL is empty", "err");
+        return;
+      }
+      saveSettings();
+
+      appendLog(`POST → ${url}`);
+      appendLog(`payload: ${JSON.stringify(payload)}`);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        setStatus(`ส่งไม่สำเร็จ (${res.status})`, false);
+        appendLog(`HTTP ${res.status}: ${text}`, "err");
+        return;
+      }
+      setStatus("ส่งสำเร็จ", true);
+      appendLog(`OK: ${text}`, "ok");
+      vibrateOK();
+    }
+
+    // ====== Scanner control ======
+    function getFormatsByMode(mode) {
+      // html5-qrcode supported formats: Html5QrcodeSupportedFormats
+      const F = Html5QrcodeSupportedFormats;
+      if (mode === "qr") return [F.QR_CODE];
+      if (mode === "barcode") return [
+        F.CODE_128, F.EAN_13, F.EAN_8, F.CODE_39, F.UPC_A, F.UPC_E, F.ITF
+      ];
+      // auto
+      return [
+        F.QR_CODE, F.CODE_128, F.EAN_13, F.EAN_8, F.CODE_39, F.UPC_A, F.UPC_E, F.ITF
+      ];
+    }
+
+    async function startScan() {
+      const mode = $("scanMode").value;
+      const formatsToSupport = getFormatsByMode(mode);
+
+      if (!qr) qr = new Html5Qrcode("reader");
+      setStatus("กำลังเริ่มกล้อง...", true);
+
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        if (!cameras || cameras.length === 0) throw new Error("No camera found");
+
+        // ใช้กล้องหลังถ้ามี (เลือกตัวสุดท้ายมักเป็น back camera บนมือถือ)
+        const camId = cameras[cameras.length - 1].id;
+
+        const config = {
+          fps: 12,
+          qrbox: { width: 260, height: 260 },
+          formatsToSupport
+        };
+
+        running = true;
+        $("btnStart").disabled = true;
+        $("btnStop").disabled = false;
+
+        await qr.start(
+          { deviceId: { exact: camId } },
+          config,
+          async (decodedText) => {
+            const code = (decodedText || "").trim();
+            if (!code) return;
+
+            const cooldown = parseInt($("cooldownMs").value, 10) || 600;
+            const t = Date.now();
+            if (lastSent.code === code && (t - lastSent.at) < cooldown) return;
+
+            lastSent = { code, at: t };
+            lastCodeEl.textContent = code;
+            appendLog(`SCAN: ${code}`);
+
+            const payload = buildPayload(code, "scan");
+            try {
+              await postToWebhook(payload);
+            } catch (e) {
+              setStatus("ส่งไม่สำเร็จ (exception)", false);
+              appendLog(`EXCEPTION: ${e.message || e}`, "err");
+            }
+          },
+          (err) => {
+            // ignore decode errors (noise)
+          }
+        );
+
+        setStatus("กำลังสแกน...", true);
+      } catch (e) {
+        running = false;
+        $("btnStart").disabled = false;
+        $("btnStop").disabled = true;
+        setStatus(`เริ่มกล้องไม่ได้: ${e.message || e}`, false);
+        appendLog(`Camera start error: ${e.message || e}`, "err");
+      }
+    }
+
+    async function stopScan() {
+      if (!qr || !running) return;
+      try {
+        await qr.stop();
+      } catch(e) {}
+      running = false;
+      $("btnStart").disabled = false;
+      $("btnStop").disabled = true;
+      setStatus("หยุดสแกนแล้ว", true);
+    }
+
+    // ====== Wire UI ======
+    $("btnStart").addEventListener("click", startScan);
+    $("btnStop").addEventListener("click", stopScan);
+
+    $("btnSendManual").addEventListener("click", async () => {
+      const code = $("manualCode").value.trim();
+      if (!code) return;
+      lastCodeEl.textContent = code;
+      appendLog(`MANUAL: ${code}`);
+      try {
+        await postToWebhook(buildPayload(code, "scan"));
+      } catch (e) {
+        setStatus("ส่งไม่สำเร็จ (exception)", false);
+        appendLog(`EXCEPTION: ${e.message || e}`, "err");
+      }
+    });
+
+    $("btnCloseSession").addEventListener("click", async () => {
+      // ส่ง action=close_session (ฝั่ง n8n จะ route ยังไงก็แล้วแต่)
+      const payload = buildPayload("__CLOSE__", "close_session");
+      appendLog("CLOSE SESSION requested");
+      try {
+        await postToWebhook(payload);
+      } catch (e) {
+        setStatus("ส่งไม่สำเร็จ (exception)", false);
+        appendLog(`EXCEPTION: ${e.message || e}`, "err");
+      }
+    });
+
+    $("btnClear").addEventListener("click", () => {
+      logEl.innerHTML = "";
+      appendLog("Log cleared");
+    });
+
+    // Auto-save when change
+    ["webhookUrl","srcLoc","dstLoc","operator","deviceId","scanMode","cooldownMs"]
+      .forEach(id => $(id).addEventListener("change", saveSettings));
+
+    // Load settings at startup
+    loadSettings();
+    appendLog("Ready. Fill Webhook URL then press Start.");
+  </script>
+</body>
+</html>
