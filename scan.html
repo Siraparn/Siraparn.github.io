@@ -3,59 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Odoo Scan & Stop</title>
+    <title>Odoo QR Scanner</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #f0f2f5; padding-top: 20px; }
-        /* จัดขนาดกล้องให้พอดีมือถือ */
-        #reader { width: 100%; max-width: 500px; margin: 0 auto; background: #000; border-radius: 8px; }
-        
-        /* ซ่อนส่วนผลลัพธ์ไว้ก่อน */
-        #resultSection { display: none; }
-        
-        /* Animation icon */
-        .status-icon { font-size: 3rem; margin-bottom: 10px; }
+        body { background-color: #f8f9fa; padding-top: 20px; }
+        #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 10px; overflow: hidden; }
+        .console-log { background: #212529; color: #00ff00; font-family: monospace; padding: 10px; border-radius: 5px; height: 150px; overflow-y: scroll; font-size: 0.8rem; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-4">
+        <div class="col-md-6 text-center">
+            <h3 class="mb-3">📷 Scan QR to Odoo</h3>
             
-            <h4 class="text-center mb-4 fw-bold text-primary">📦 Odoo Scanner</h4>
+            <div id="reader" class="mb-3 shadow"></div>
 
-            <div class="mb-3">
-                <label class="form-label small text-muted">API Endpoint:</label>
-                <input type="text" id="odooUrl" class="form-control form-control-sm" 
-                       value="http://localhost:8069/api/scan_qr" placeholder="http://...">
-            </div>
-
-            <div id="cameraSection">
-                <div id="reader"></div>
-                <div class="text-center mt-2 text-muted small">วาง QR Code ให้อยู่ในกรอบ</div>
-            </div>
-
-            <div id="resultSection" class="card shadow-sm text-center p-4">
-                
-                <div id="loadingState">
-                    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
-                    <h5>กำลังส่งข้อมูลไป Odoo...</h5>
-                    <p class="text-muted" id="scannedDataShow">...</p>
+            <div class="card mb-3 text-start">
+                <div class="card-body">
+                    <label class="form-label fw-bold">Odoo Endpoint:</label>
+                    <input type="text" id="odooUrl" class="form-control form-control-sm" value="https://your-odoo-url.com/api/receive_qr" placeholder="https://...">
+                    <small class="text-muted">เช่น /web/dataset/call_kw หรือ Custom Controller</small>
                 </div>
-
-                <div id="finalState" style="display:none;">
-                    <div id="statusIcon" class="status-icon">✅</div>
-                    <h4 id="statusTitle">บันทึกสำเร็จ</h4>
-                    <p id="statusMessage" class="text-muted mb-4">รายละเอียดจาก Odoo...</p>
-                    
-                    <button onclick="resetScanner()" class="btn btn-primary btn-lg w-100">
-                        สแกนรายการต่อไป
-                    </button>
-                </div>
-
             </div>
 
+            <div class="card mb-3 text-start">
+                <div class="card-header bg-primary text-white">Scan Result</div>
+                <div class="card-body">
+                    <h5 class="card-title" id="scanResultText">Waiting for scan...</h5>
+                    <p class="card-text text-muted" id="apiStatus">API Status: Idle</p>
+                </div>
+            </div>
+
+            <div class="text-start">
+                <label class="fw-bold">Logs:</label>
+                <div id="appConsole" class="console-log">System ready...</div>
+            </div>
         </div>
     </div>
 </div>
@@ -63,112 +47,108 @@
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 
 <script>
-    const scanSound = new Audio('https://www.soundjay.com/buttons/sounds/button-3.mp3'); 
-    let html5QrcodeScanner = null;
+    // --- Configuration ---
+    // ถ้าต้องการเสียง Beep ตอนสแกนติดให้ใส่ไฟล์เสียง
+    const scanSuccessAudio = new Audio('https://www.soundjay.com/buttons/sounds/button-3.mp3'); 
 
-    // เริ่มทำงานเมื่อโหลดหน้าเว็บ
-    document.addEventListener("DOMContentLoaded", () => {
-        startScanner();
-    });
-
-    function startScanner() {
-        // รีเซ็ตหน้าจอ
-        document.getElementById('cameraSection').style.display = 'block';
-        document.getElementById('resultSection').style.display = 'none';
-        document.getElementById('loadingState').style.display = 'block';
-        document.getElementById('finalState').style.display = 'none';
-
-        // สร้าง Scanner Instance ใหม่
-        // ใช้ html5-qrcode แบบ Basic เพื่อควบคุมการ Stop ได้ง่ายกว่า
-        html5QrcodeScanner = new Html5QrcodeScanner(
-            "reader", 
-            { 
-                fps: 10, 
-                qrbox: { width: 250, height: 250 },
-                aspectRatio: 1.0
-            },
-            false
-        );
-        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
-    }
-
-    function onScanSuccess(decodedText, decodedResult) {
-        // 1. เล่นเสียง
-        scanSound.play();
-
-        // 2. หยุดกล้องและเคลียร์ UI ทันที
-        html5QrcodeScanner.clear().then(_ => {
-            console.log("Camera stopped.");
-            
-            // 3. สลับหน้าจอไปที่ Loading
-            document.getElementById('cameraSection').style.display = 'none';
-            document.getElementById('resultSection').style.display = 'block';
-            document.getElementById('scannedDataShow').innerText = `Code: ${decodedText}`;
-
-            // 4. ส่งข้อมูล
-            sendToOdoo(decodedText);
-        }).catch(error => {
-            console.error("Failed to clear camera", error);
-        });
-    }
-
-    function onScanFailure(error) {
-        // ไม่ต้องทำอะไร ปล่อยผ่าน
+    function log(message) {
+        const consoleDiv = document.getElementById('appConsole');
+        const time = new Date().toLocaleTimeString();
+        consoleDiv.innerHTML += `<div>[${time}] ${message}</div>`;
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
     }
 
     async function sendToOdoo(qrData) {
         const url = document.getElementById('odooUrl').value;
+        const statusElem = document.getElementById('apiStatus');
         
-        // Payload ตามที่ตกลงกับ Controller Odoo
+        statusElem.innerHTML = `API Status: <span class="text-warning">Sending...</span>`;
+        log(`Sending data to Odoo: ${qrData}`);
+
+        // ตัวอย่าง Payload สำหรับ Odoo (ปรับแก้ตาม Controller ของคุณ)
+        // กรณี Odoo 10-16+ มักจะรับเป็น JSON-RPC หรือ REST ถา้ลง Module เสริม
         const payload = {
             jsonrpc: "2.0",
             method: "call",
             params: {
                 qr_code: qrData,
                 device_info: navigator.userAgent
+                // ใส่ authentication token หรือ db name ตรงนี้ถ้าจำเป็น
             },
-            id: Date.now()
+            id: Math.floor(Math.random() * 1000)
         };
 
         try {
+            // ** สำคัญ **: Browser จะ Block ถ้า Odoo Server ไม่ได้เปิด CORS
             const response = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    // 'Authorization': 'Bearer YOUR_TOKEN' // กรณีใช้ Token
+                },
                 body: JSON.stringify(payload)
             });
 
             if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
 
             const data = await response.json();
-
-            // เช็ค Error จาก Odoo Logic
+            
             if (data.error) {
-                showResult(false, "เกิดข้อผิดพลาด Odoo", data.error.data.message || data.error.message);
-            } else {
-                // เช็ค Status ที่เราส่งกลับมาจาก Python Controller (success/warning)
-                const result = data.result; 
-                if(result.status === 'success') {
-                    showResult(true, "สำเร็จ!", result.message);
-                } else {
-                    showResult(false, "แจ้งเตือน", result.message); // กรณีหาไม่เจอแต่อยากให้เป็นสีเหลือง
-                }
+                 throw new Error(data.error.data.message || "Odoo Error");
             }
+
+            statusElem.innerHTML = `API Status: <span class="text-success">Success!</span>`;
+            log(`Odoo Response: ${JSON.stringify(data.result)}`);
+            alert("บันทึกข้อมูลสำเร็จ!");
 
         } catch (error) {
             console.error(error);
-            showResult(false, "Connection Error", "ไม่สามารถติดต่อ Odoo Server ได้ (CORS หรือ Network)");
+            statusElem.innerHTML = `API Status: <span class="text-danger">Failed</span>`;
+            log(`Error: ${error.message}`);
+            
+            // หมายเหตุสำหรับ Developer
+            if(error.message.includes("Failed to fetch")) {
+                log(`⚠️ CORS Error? เช็คการตั้งค่า Odoo Server หรือลองเทสผ่าน Proxy`);
+            }
         }
     }
 
-    function showResult(isSuccess, title, message) {
-        // ซ่อน Loading -> โชว์ผลลัพธ์
-        document.getElementById('loadingState').style.display = 'none';
-        const finalState = document.getElementById('finalState');
-        finalState.style.display = 'block';
-
-        // ปรับแต่ง UI ตามผลลัพธ์
-        const icon = document.getElementById('statusIcon');
-        const titleElem = document.getElementById('statusTitle');
+    function onScanSuccess(decodedText, decodedResult) {
+        // เล่นเสียงเมื่อสแกนติด
+        scanSuccessAudio.play();
         
-        if (isSuccess) {
-            icon.innerHTML = "✅";
+        // แสดงผลหน้าเว็บ
+        document.getElementById('scanResultText').innerText = decodedText;
+        log(`QR Found: ${decodedText}`);
+
+        // หยุดสแกนชั่วคราวเพื่อไม่ให้ยิง API รัวๆ
+        html5QrcodeScanner.pause();
+
+        // ส่งข้อมูลไป Odoo
+        sendToOdoo(decodedText).then(() => {
+            // รอ 2 วินาทีแล้วเริ่มสแกนใหม่ (หรือจะให้กดปุ่ม Reset เองก็ได้)
+            setTimeout(() => {
+                document.getElementById('apiStatus').innerText = "API Status: Ready for next";
+                html5QrcodeScanner.resume();
+            }, 3000);
+        });
+    }
+
+    function onScanFailure(error) {
+        // ส่วนนี้จะทำงานตลอดเวลาที่กล้องยังหามุม QR ไม่เจอ (ไม่ต้อง log ก็ได้เพราะจะรก)
+    }
+
+    // --- Initialize Scanner ---
+    // fps: จำนวนเฟรมต่อวินาที, qrbox: ขนาดกรอบโฟกัส
+    let html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader", 
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+    );
+    
+    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+
+</script>
+
+</body>
+</html>
